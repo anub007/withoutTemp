@@ -95,6 +95,7 @@ class BlobUploader:
         if blob_name in self.progress:
             del self.progress[blob_name]
 
+
     def get_progress(self, blob_name: str):
         return self.progress.get(blob_name)
 
