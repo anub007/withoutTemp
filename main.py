@@ -63,10 +63,9 @@ async def upload_files(files: list[UploadFile] = File(...)):
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail="Failed to start upload process.")
 
-
 async def upload_file_task(temp_file_path: str, filename: str):
     try:
-        blob_uploader.upload_stream(temp_file_path, filename)
+        await asyncio.to_thread(blob_uploader.upload_stream, temp_file_path, filename)  # Run the upload in a thread
         logger.info(f"Upload of {filename} completed successfully")
     except Exception as e:
         logger.error(f"Error uploading file {filename}: {str(e)}")
