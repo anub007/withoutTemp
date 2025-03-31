@@ -1,0 +1,197 @@
+**FranceServiceTest.java**
+```java
+/******************************************************************************
+ * Copyright (c) 2024 Boeing. All Rights Reserved.                            *
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.              *
+ ******************************************************************************/
+package com.boeing.adh.sites.france;
+
+import com.boeing.adh.commons.JobInfo;
+import com.boeing.adh.exception.AzureConfigMissingException;
+import com.boeing.adh.exception.HarvesterServiceException;
+import com.microsoft.playwright.Browser;
+import com.microsoft.playwright.BrowserType;
+import com.microsoft.playwright.Page;
+import com.microsoft.playwright.Playwright;
+import org.json.JSONObject;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
+import org.mockito.Spy;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.stubbing.Answer;
+
+import java.security.NoSuchAlgorithmException;
+
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.mock;
+
+@ExtendWith(MockitoExtension.class)
+class FranceServiceTest {
+    @Spy
+    @InjectMocks
+    FranceService franceService;
+
+    @Mock
+    FranceCrawler franceCrawler;
+
+    @Mock
+    com.boeing.adh.commons.CommonService commonService;
+
+    @Test
+    void startCrawlingTest() throws HarvesterServiceException, AzureConfigMissingException, NoSuchAlgorithmException {
+        JSONObject mockXpathConfig = mock(JSONObject.class);
+        doReturn(mockXpathConfig).when(commonService).getXpathConfigFromAzure(any(), any());
+        BrowserType mockBrowserType = mock(BrowserType.class);
+        doReturn(mockBrowserType).when(commonService).getBrowserTypeFromXpathConfig(any(), any());
+        Browser mockBrowser = mock(Browser.class);
+        Page mockPage = mock(Page.class);
+        doReturn(mockBrowser).when(mockBrowserType).launch(any());
+        doReturn(mockPage).when(mockBrowser).newPage(any());
+
+        try (MockedStatic<Playwright> mockedStatic = Mockito.mockStatic(Playwright.class)) {
+            mockedStatic.when(Playwright::create).thenAnswer((Answer<Playwright>) invocation -> mock(Playwright.class));
+            assertDoesNotThrow(
+                    () -> franceService.startCrawling(new JSONObject(), new JobInfo("job1", "task1")));
+        }
+    }
+
+    @Test
+    void attributeTest() {
+        assertDoesNotThrow(() -> franceService.fileMountPath());
+        assertDoesNotThrow(() -> franceService.getLocalPath());
+        assertDoesNotThrow(() -> franceService.oldCheck());
+    }
+}
+```
+
+**FranceCrawlerTest.java**
+```java
+/******************************************************************************
+ * Copyright (c) 2024 Boeing. All Rights Reserved.                            *
+ * DO NOT ALTER OR REMOVE COPYRIGHT NOTICES OR THIS FILE HEADER.              *
+ ******************************************************************************/
+package com.boeing.adh.sites.france;
+
+import com.boeing.adh.commons.CommonService;
+import com.boeing.adh.commons.FileOperations;
+import com.boeing.adh.commons.JobInfo;
+import com.boeing.adh.exception.HarvesterServiceException;
+import com.boeing.adh.exception.InvalidCredentialException;
+import com.boeing.adh.exception.SiteNotReachableException;
+import com.boeing.adh.model.FileDetails;
+import com.microsoft.playwright.*;
+import org.json.JSONObject;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.Spy;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+import java.io.IOException;
+import java.security.NoSuchAlgorithmException;
+
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.*;
+import static org.mockito.Mockito.*;
+
+@ExtendWith(MockitoExtension.class)
+class FranceCrawlerTest {
+    @Spy
+    @InjectMocks
+    FranceCrawler franceCrawler;
+
+    @Mock
+    CommonService commonService;
+
+    @Mock
+    FileOperations fileOperations;
+
+    @Mock
+    Page page;
+
+    String config = "{\"url\":\"https://france-aip-dummy.com\"}";
+    String xpathConfig = "{\n" +
+            "\t\"DEFAULT_TIME\": 5000,\n" +
+            "\t\"SLEEP_TIME\": 2000,\n" +
+            "\t\"COOKIES_ACCEPT\": \"//button[text()='Accept']\",\n" +
+            "\t\"LANGUAGE_BUTTON\": \"//a[@id='lang-en']\",\n" +
+            "\t\"PREFLIGHT_BRIEFING_BUTTON\": \"//nav//a[contains(text(),'Preflight')]\",\n" +
+            "\t\"SUP_AIP_LOCATOR\": \"//div[@id='sup-aip']\",\n" +
+            "\t\"AIC_METROPOLE_LOCATOR\": \"//div[@id='aic-metropole']\",\n" +
+            "\t\"SUP_AIP_XPATHS\": \"//a[contains(@class,'sup-download')]\",\n" +
+            "\t\"AIC_METROPOLE_XPATHS\": \"//a[contains(@class,'aic-download')]\"\n" +
+            "}";
+
+    @Test
+    void startCrawlingTest() throws Exception {
+        when(page.url()).thenReturn("https://france-aip-dummy.com");
+        JSONObject xpathConfigJson = new JSONObject(xpathConfig);
+        franceCrawler.setXpathConfigJson(xpathConfigJson);
+
+        Locator mockLocator = mock(Locator.class);
+        when(page.locator(anyString())).thenReturn(mockLocator);
+        when(mockLocator.count()).thenReturn(2);
+
+        Download mockDownload = mock(Download.class);
+        when(mockDownload.suggestedFilename()).thenReturn("file.pdf");
+        doReturn(mockDownload).when(page).waitForDownload(any());
+
+        doReturn(new FileDetails("hash123", 1024)).when(commonService)
+                .downloadFileWithPlaywright(any(), anyString(), anyString(), any());
+
+        assertDoesNotThrow(() -> franceCrawler.startCrawling("france-aip", page, new JSONObject(config),
+                new JobInfo("job1", "task1")));
+    }
+
+    @Test
+    void startCrawlingTest_TimeoutError() {
+        JSONObject xpathConfigJson = new JSONObject(xpathConfig);
+        franceCrawler.setXpathConfigJson(xpathConfigJson);
+
+        when(page.locator(anyString())).thenThrow(TimeoutError.class);
+
+        assertThrows(HarvesterServiceException.class, () ->
+                franceCrawler.startCrawling("france-aip", page, new JSONObject(config), new JobInfo("job1", "task1")));
+    }
+
+    @Test
+    void downloadSectionFilesTest_IOException() throws Exception {
+        Locator mockLocator = mock(Locator.class);
+        when(page.locator(anyString())).thenReturn(mockLocator);
+        when(mockLocator.count()).thenReturn(1);
+
+        Download mockDownload = mock(Download.class);
+        when(mockDownload.suggestedFilename()).thenReturn("file.pdf");
+        doReturn(mockDownload).when(page).waitForDownload(any());
+
+        doThrow(IOException.class).when(commonService)
+                .downloadFileWithPlaywright(any(), anyString(), anyString(), any());
+
+        assertThrows(IOException.class, () ->
+                franceCrawler.downloadSectionFiles(page, "//a", "/tmp", "SUP", mock(), new JobInfo("job1", "task1")));
+    }
+}
+```
+
+**Explanation:**
+
+1. **FranceServiceTest.java**  
+   - Follows the structure of `AustraliaYBBNServiceTest`, mocking Playwright, browser, and page creation.  
+   - Tests `startCrawling` for successful execution and basic attribute methods.  
+   - Uses `MockedStatic` to handle static `Playwright.create()`.
+
+2. **FranceCrawlerTest.java**  
+   - **Normal Flow:** Mocks page interactions, simulates downloads, and verifies no exceptions.  
+   - **TimeoutError:** Tests `HarvesterServiceException` when elements are not found.  
+   - **IOException Handling:** Checks if download failures propagate correctly.  
+   - Configures realistic JSON structures for `config` and `xpathConfig` to mimic production data.  
+   - Covers key methods like `downloadSectionFiles`, `navigateToSection`, and error paths.  
+
+Both tests mirror the Australian pattern while addressing France-specific logic like cookie acceptance, language switching, and multi-section downloads.
